@@ -1289,6 +1289,13 @@ body::before{
   padding: 11px 16px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
 .dark-food-add-btn:active { background: #c22b14; }
+.dark-food-scan-btn {
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+  color: #fff; padding: 11px 12px; cursor: pointer; transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.dark-food-scan-btn:active { background: rgba(255,255,255,0.2); }
+.dark-food-scan-btn:disabled { opacity: 0.3; cursor: default; }
 .dark-pro-banner {
   background: rgba(232,52,26,0.12); border-top: 1px solid rgba(232,52,26,0.25);
   padding: 14px 16px; margin-top: 2px;
@@ -3115,6 +3122,81 @@ function addServing(enc){
   const sa=document.getElementById('serving-area'); if(sa) sa.innerHTML='';
   toast(food.name+' — '+food.kcal+' kcal');
 }
+async function scanBarcode(){
+  if(!window.BarcodeDetector) return;
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:#000;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;';
+  const video=document.createElement('video');
+  video.style.cssText='width:100%;max-width:480px;border-radius:12px;background:#111;';
+  video.setAttribute('autoplay',''); video.setAttribute('playsinline',''); video.setAttribute('muted','');
+  const frame=document.createElement('div');
+  frame.style.cssText='position:relative;width:100%;max-width:480px;';
+  const corners=document.createElement('div');
+  corners.style.cssText='position:absolute;inset:0;pointer-events:none;border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,0.5);';
+  const hint=document.createElement('div');
+  hint.style.cssText='color:#fff;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-top:20px;opacity:0.7;text-align:center;';
+  hint.textContent='Point camera at barcode';
+  const cancelBtn=document.createElement('button');
+  cancelBtn.textContent='Cancel';
+  cancelBtn.style.cssText='margin-top:28px;background:#e8341a;border:none;color:#fff;font-family:\'Barlow Condensed\',sans-serif;font-weight:700;font-size:13px;letter-spacing:2px;text-transform:uppercase;padding:12px 36px;cursor:pointer;border-radius:4px;';
+  frame.appendChild(video); frame.appendChild(corners);
+  overlay.appendChild(frame); overlay.appendChild(hint); overlay.appendChild(cancelBtn);
+  document.body.appendChild(overlay);
+  let stream; let scanning=true;
+  function stopScan(){scanning=false;if(stream)stream.getTracks().forEach(t=>t.stop());overlay.remove();}
+  cancelBtn.onclick=stopScan;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    video.srcObject=stream; await video.play();
+    const detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf']});
+    async function detect(){
+      if(!scanning) return;
+      try{const barcodes=await detector.detect(video);if(barcodes.length>0){const barcode=barcodes[0].rawValue;stopScan();await fetchBarcodeProduct(barcode);return;}}catch(e){}
+      if(scanning) requestAnimationFrame(detect);
+    }
+    requestAnimationFrame(detect);
+  }catch(e){
+    stopScan();
+    const fb=document.getElementById('food-feedback');
+    if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.6)">Camera access denied</div>';
+  }
+}
+async function fetchBarcodeProduct(barcode){
+  const fb=document.getElementById('food-feedback');
+  const sa=document.getElementById('serving-area');
+  if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.6)">Looking up barcode...</div>';
+  try{
+    const res=await fetch('https://world.openfoodfacts.org/api/v2/product/'+barcode+'.json');
+    const data=await res.json();
+    if(data.status!==1||!data.product){
+      if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#e8341a">Product not found — try searching by name</div>';
+      return;
+    }
+    const p=data.product; const n=p.nutriments||{};
+    const name=(p.product_name||p.product_name_en||'Scanned Product').trim();
+    const servingSize=p.serving_size||'100g';
+    const per100={kcal:Math.round(n['energy-kcal_100g']||0),protein:Math.round((n.proteins_100g||0)*10)/10,carbs:Math.round((n.carbohydrates_100g||0)*10)/10,fat:Math.round((n.fat_100g||0)*10)/10,sugar:Math.round((n.sugars_100g||0)*10)/10};
+    const perSrv={kcal:Math.round(n['energy-kcal_serving']||0),protein:Math.round((n.proteins_serving||0)*10)/10,carbs:Math.round((n.carbohydrates_serving||0)*10)/10,fat:Math.round((n.fat_serving||0)*10)/10,sugar:Math.round((n.sugars_serving||0)*10)/10};
+    const opts=[];
+    if(perSrv.kcal>0) opts.push({serving:servingSize,...perSrv});
+    opts.push({serving:'100g',...per100});
+    if(perSrv.kcal>0) opts.push({serving:'2 x '+servingSize,kcal:perSrv.kcal*2,protein:Math.round(perSrv.protein*20)/10,carbs:Math.round(perSrv.carbs*20)/10,fat:Math.round(perSrv.fat*20)/10,sugar:Math.round(perSrv.sugar*20)/10});
+    if(fb) fb.innerHTML='';
+    if(sa) sa.innerHTML=`<div style="background:#222;border-top:1px solid rgba(255,255,255,0.08)">
+      <div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.07)">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.65)">${name} — pick serving</span>
+        <button onclick="document.getElementById('serving-area').innerHTML=''" style="background:none;border:none;font-size:18px;color:rgba(255,255,255,0.6);cursor:pointer;line-height:1">×</button>
+      </div>
+      ${opts.map(o=>`<div class="serving-opt" style="background:transparent;border-bottom:1px solid rgba(255,255,255,0.06)" onclick="addServing('${encodeURIComponent(JSON.stringify({name:name+' ('+o.serving+')',kcal:o.kcal,protein:o.protein,carbs:o.carbs,fat:o.fat,sugar:o.sugar||0}))}')">
+        <div class="serving-opt-name" style="color:#fff">${o.serving}</div>
+        <div class="serving-opt-m">P ${o.protein}g · C ${o.carbs}g</div>
+        <div class="serving-opt-k">${o.kcal} kcal</div>
+      </div>`).join('')}
+    </div>`;
+  }catch(e){
+    if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#e8341a">Error fetching product info</div>';
+  }
+}
 function addFavToLog(enc){
   const food=JSON.parse(decodeURIComponent(enc));
   mutate(()=>{const log=getLog();log.push({...food});setLog(log)});
@@ -3451,6 +3533,7 @@ function renderMeals(){
       <div class="dark-food-input-wrap">
         <div class="dark-food-row">
           <input class="dark-food-inp" id="food-inp" placeholder="200g chicken, 2 eggs, salmon..." onkeydown="if(event.key==='Enter')addFood()">
+          ${window.BarcodeDetector?`<button class="dark-food-scan-btn" id="food-scan-btn" onclick="scanBarcode()" title="Scan barcode"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>`:''}
           <button class="dark-food-add-btn" id="food-add-btn" onclick="addFood()"><span id="food-add-icon">+</span> Add</button>
         </div>
         <div id="serving-area"></div>
