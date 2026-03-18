@@ -9,6 +9,7 @@
 <title>Connor — Health OS</title>
 <link rel="manifest" href="/manifest.json">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,300;0,400;0,600;0,700;0,800;0,900;1,700&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/dexie/dist/dexie.js"></script>
 <style>
 /* ── TOKENS ─────────────────────────────────────────── */
 :root {
@@ -2633,23 +2634,55 @@ body::before{
 <script>
 
 // ══════════════════════════════════════════════════════
-//  DATA LAYER — single source of truth
+//  DATA LAYER — IndexedDB via Dexie, in-memory cache
 // ══════════════════════════════════════════════════════
-function ld(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}}
-function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+const db=new Dexie('connor-health');
+db.version(1).stores({kv:'key'});
+const _cache={};
+function ld(k,d){return k in _cache?_cache[k]:d}
+function sv(k,v){_cache[k]=v;db.kv.put({key:k,value:v}).catch(()=>{})}
+function del(k){delete _cache[k];db.kv.delete(k).catch(()=>{})}
+function keysWithPrefix(p){return Object.keys(_cache).filter(k=>k.startsWith(p))}
 
 const GOALS_DEFAULT={kcal:2200,protein:190,carbs:80,fat:120,sugar:15,fastHours:18,waterGlasses:8};
-let G = ld('hx2-goals', GOALS_DEFAULT);
-let W = ld('hx2-weight', {current:221,start:221,goal:185,history:[]});
-let checks  = ld('hx2-checks', {});
-let cardioD = ld('hx2-cardio', {});
-let favs    = ld('hx2-favs', []);
-let settings= ld('hx2-settings', {notifs:false,units:'lbs'});
-let fastStart = ld('hx2-faststart', null); // timestamp when fast began
-let manualExs = ld('hx2-manual-ex', {}); // {dayKey: [{name,sets}]}
-let woGroups  = ld('hx2-wo-groups', []); // [{name, exercises:[{n,s}]}]
-let pbLog     = ld('hx2-pb-log', {});    // {exerciseName: [{entry,date,timestamp}]}
-let workoutTimers = ld('hx2-wo-timer', {}); // {dayKey: {start,elapsed,running}}
+let G=GOALS_DEFAULT;
+let W={current:221,start:221,goal:185,history:[]};
+let checks={};
+let cardioD={};
+let favs=[];
+let settings={notifs:false,units:'lbs'};
+let fastStart=null; // timestamp when fast began
+let manualExs={}; // {dayKey: [{name,sets}]}
+let woGroups=[]; // [{name, exercises:[{n,s}]}]
+let pbLog={};    // {exerciseName: [{entry,date,timestamp}]}
+let workoutTimers={}; // {dayKey: {start,elapsed,running}}
+
+async function initDB(){
+  const all=await db.kv.toArray();
+  for(const {key,value} of all) _cache[key]=value;
+  // Migrate existing localStorage data on first run
+  if(!_cache['hx2-db-migrated']){
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.startsWith('hx2-')){
+        try{const v=localStorage.getItem(k);if(v!==null){_cache[k]=JSON.parse(v);await db.kv.put({key:k,value:_cache[k]});}}catch{}
+      }
+    }
+    _cache['hx2-db-migrated']=true;
+    await db.kv.put({key:'hx2-db-migrated',value:true});
+  }
+  G=ld('hx2-goals',GOALS_DEFAULT);
+  W=ld('hx2-weight',{current:221,start:221,goal:185,history:[]});
+  checks=ld('hx2-checks',{});
+  cardioD=ld('hx2-cardio',{});
+  favs=ld('hx2-favs',[]);
+  settings=ld('hx2-settings',{notifs:false,units:'lbs'});
+  fastStart=ld('hx2-faststart',null);
+  manualExs=ld('hx2-manual-ex',{});
+  woGroups=ld('hx2-wo-groups',[]);
+  pbLog=ld('hx2-pb-log',{});
+  workoutTimers=ld('hx2-wo-timer',{});
+}
 
 function todayKey(){return new Date().toDateString()}
 function logKey(date){return 'hx2-log-'+(date instanceof Date?date.toDateString():date)}
@@ -2827,6 +2860,7 @@ function renderTab(tab){
 }
 
 // Auto-re-render active tab on data change
+let _initDone=false;
 subscribe(()=>{if(_initDone)renderTab(curTab);});
 
 // ══════════════════════════════════════════════════════
@@ -2853,14 +2887,11 @@ function checkAutoFast(){
 function dailyReset(){
   // Clean up per-day exercise override keys older than 7 days
   const exCutoff=Date.now()-7*24*3600000;
-  for(let i=localStorage.length-1;i>=0;i--){
-    const k=localStorage.key(i);
-    if(k&&(k.startsWith('hx2-hidden-ex-')||k.startsWith('hx2-edits-ex-'))){
-      const parts=k.split('-'); const dStr=parts.slice(3).join('-');
-      const d=new Date(dStr);
-      if(!isNaN(d)&&d.getTime()<exCutoff) localStorage.removeItem(k);
-    }
-  }
+  [...keysWithPrefix('hx2-hidden-ex-'),...keysWithPrefix('hx2-edits-ex-')].forEach(k=>{
+    const parts=k.split('-');const dStr=parts.slice(3).join('-');
+    const d=new Date(dStr);
+    if(!isNaN(d)&&d.getTime()<exCutoff) del(k);
+  });
   // Reset stale fast timer from a previous day
   if(fastStart){
     const startDay=new Date(fastStart).toDateString();
@@ -2989,8 +3020,7 @@ function tickWoTimer(){
   const total=t.elapsed+(t.running&&t.start?Math.floor((Date.now()-t.start)/1000):0);
   el.textContent=hms(total);
 }
-// Resume timer if it was running
-(function(){const t=getWoTimer();if(t.running){woTimerInterval=setInterval(tickWoTimer,1000)}})();
+// Resume timer if it was running — called in startApp() after DB loads
 
 // ══════════════════════════════════════════════════════
 //  AI
@@ -4324,7 +4354,7 @@ function clearTodayData(){
   if(confirm('Clear today\'s food log?')){setLog([]);toast('Today\'s log cleared');notify()}}
 function confirmClearAll(){
   if(confirm('Reset ALL data? This cannot be undone.')){
-    ['hx2-goals','hx2-weight','hx2-checks','hx2-cardio','hx2-favs','hx2-settings','hx2-faststart','hx2-manual-ex','hx2-wo-timer'].forEach(k=>localStorage.removeItem(k));
+    keysWithPrefix('hx2-').forEach(k=>del(k));
     location.reload();
   }
 }
@@ -4380,18 +4410,19 @@ function toast(msg){
 // ══════════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════════
-dailyReset();
-checkAutoFast();
-if(settings.notifs && Notification.permission==='granted') scheduleNotifs();
-renderOverview();
-// Prevent double render on first load - subscribe fires after initial render
-let _initDone=false;
-setTimeout(()=>{_initDone=true;},50);
-
-// Also add Goals + Settings to bottom nav on long-press / swipe up
-// Settings accessible via settings card in progress tab
-// Refresh active tab every 60s for live clock updates
-setInterval(()=>renderTab(curTab),60000);
+function startApp(){
+  (function(){const t=getWoTimer();if(t.running){woTimerInterval=setInterval(tickWoTimer,1000)}})();
+  dailyReset();
+  checkAutoFast();
+  if(settings.notifs&&Notification.permission==='granted') scheduleNotifs();
+  renderOverview();
+  // Prevent double render on first load - subscribe fires after initial render
+  setTimeout(()=>{_initDone=true;},50);
+  // Refresh active tab every 60s for live clock updates
+  setInterval(()=>renderTab(curTab),60000);
+  setTimeout(initCheckin,200);
+}
+initDB().then(startApp).catch(e=>{console.error('DB init failed',e);startApp();});
 
 // Settings accessible from Goals tab footer link
 
@@ -4818,8 +4849,7 @@ function ciEnterApp(){
   notify();
 }
 
-// Init check-in after short delay so app renders first
-setTimeout(initCheckin, 200);
+// Check-in is initialized in startApp()
 
 </script>
 </body>
