@@ -746,6 +746,12 @@ body::before{
   font-size:13px;letter-spacing:3px;text-transform:uppercase;cursor:pointer;margin-top:6px;
 }
 .danger-btn:active{background:var(--red);color:var(--white)}
+.export-btn{
+  width:100%;padding:14px;border:1px solid rgba(255,255,255,0.25);background:transparent;
+  color:rgba(255,255,255,0.85);font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  font-size:13px;letter-spacing:3px;text-transform:uppercase;cursor:pointer;margin-top:6px;
+}
+.export-btn:active{background:rgba(255,255,255,0.12)}
 
 /* ── MODAL SHEETS ───────────────────────────────────── */
 .modal-bg{
@@ -4364,6 +4370,7 @@ function renderSettings(){
     <div class="card fade-item">
       <div class="card-head"><span class="card-label">Data</span></div>
       <div class="card-body">
+        <button class="export-btn" onclick="exportData()">Export Data</button>
         <button class="danger-btn" onclick="clearTodayData()">Clear Today's Log</button>
         <button class="danger-btn" style="margin-top:6px;border-color:rgba(212,43,43,0.2);opacity:0.6" onclick="confirmClearAll()">Reset All Data</button>
       </div>
@@ -4400,6 +4407,119 @@ function confirmClearAll(){
     keysWithPrefix('hx2-').forEach(k=>del(k));
     location.reload();
   }
+}
+function exportData(){
+  toast('Exporting data...');
+  setTimeout(()=>{
+    const rows=[];
+    const esc=v=>{const s=String(v==null?'':v);return s.includes(',')||s.includes('"')||s.includes('\n')?'"'+s.replace(/"/g,'""')+'"':s};
+    const row=(...cells)=>rows.push(cells.map(esc).join(','));
+
+    // Build 90 days
+    const days90=[];
+    for(let i=89;i>=0;i--){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-i);days90.push(d)}
+
+    // Weight history lookup by date string
+    const wh=W.history||[];
+    const wByDate={};
+    wh.forEach(e=>{const ds=new Date(e.date).toDateString();wByDate[ds]=+e.w||0});
+
+    // SECTION 1 — DAILY SUMMARY
+    rows.push('SECTION 1 — DAILY SUMMARY');
+    row('Date','Weight','Calories','Protein(g)','Carbs(g)','Fat(g)','Cardio Mins','Workout Type','Sets Done','Total Sets','Water Glasses');
+    const allChecks=ld('hx2-checks',{});
+    const allCardio=ld('hx2-cardio',{});
+    days90.forEach(d=>{
+      const ds=d.toDateString();
+      const dateStr=d.toLocaleDateString('en-US',{year:'numeric',month:'2-digit',day:'2-digit'});
+      const weight=wByDate[ds]||'';
+      const foodLog=ld('hx2-log-'+ds,[]);
+      const kcal=foodLog.reduce((a,e)=>a+(+e.kcal||0),0);
+      const prot=foodLog.reduce((a,e)=>a+(+e.protein||0),0);
+      const carbs=foodLog.reduce((a,e)=>a+(+e.carbs||0),0);
+      const fat=foodLog.reduce((a,e)=>a+(+e.fat||0),0);
+      const cardioMins=allCardio[ds]||0;
+      const dow=d.getDay();
+      const woPlanIdx=dow===0?6:dow-1;
+      const wo=WO_PLAN[woPlanIdx];
+      const woType=wo?wo.t:'REST';
+      const totalSets=wo?wo.e.length:0;
+      const setsDone=wo?wo.e.filter((_,i)=>allChecks[ds+'-'+i]).length:0;
+      const water=ld('hx2-water-'+ds,0);
+      row(dateStr,weight,kcal||'',prot||'',carbs||'',fat||'',cardioMins||'',woType,setsDone||'',totalSets||'',water||'');
+    });
+    rows.push('');
+
+    // SECTION 2 — FOOD LOG
+    rows.push('SECTION 2 — FOOD LOG');
+    row('Date','Food Name','Calories','Protein(g)','Carbs(g)','Fat(g)','Sugar(g)');
+    days90.forEach(d=>{
+      const ds=d.toDateString();
+      const dateStr=d.toLocaleDateString('en-US',{year:'numeric',month:'2-digit',day:'2-digit'});
+      const foodLog=ld('hx2-log-'+ds,[]);
+      foodLog.forEach(e=>{
+        row(dateStr,e.name||'',+e.kcal||0,+e.protein||0,+e.carbs||0,+e.fat||0,+e.sugar||0);
+      });
+    });
+    rows.push('');
+
+    // SECTION 3 — WEIGHT HISTORY
+    rows.push('SECTION 3 — WEIGHT HISTORY');
+    row('Date','Weight(lbs)','Change from Previous','Percent to Goal');
+    const goalW=W.goal||185;
+    const startW=W.start||W.current||221;
+    wh.forEach((e,i)=>{
+      const dateStr=new Date(e.date).toLocaleDateString('en-US',{year:'numeric',month:'2-digit',day:'2-digit'});
+      const w=+e.w||0;
+      const prev=i>0?+wh[i-1].w||0:'';
+      const change=prev!==''?(w-prev).toFixed(1):'';
+      const totalDrop=startW-goalW;
+      const pct=totalDrop>0?Math.min(100,Math.max(0,((startW-w)/totalDrop*100))).toFixed(1):'';
+      row(dateStr,w,change,pct!==''?pct+'%':'');
+    });
+    rows.push('');
+
+    // SECTION 4 — WORKOUTS
+    rows.push('SECTION 4 — WORKOUTS');
+    row('Date','Workout Type','Cardio Mins','Sets Completed','Total Sets','Completion Percent');
+    days90.forEach(d=>{
+      const ds=d.toDateString();
+      const dow=d.getDay();
+      const woPlanIdx=dow===0?6:dow-1;
+      const wo=WO_PLAN[woPlanIdx];
+      if(!wo) return;
+      const cardioMins=allCardio[ds]||0;
+      const totalSets=wo.e.length;
+      const setsDone=wo.e.filter((_,i)=>allChecks[ds+'-'+i]).length;
+      if(setsDone===0&&cardioMins===0) return;
+      const pct=totalSets>0?Math.round(setsDone/totalSets*100):0;
+      const dateStr=d.toLocaleDateString('en-US',{year:'numeric',month:'2-digit',day:'2-digit'});
+      row(dateStr,wo.t,cardioMins,setsDone,totalSets,pct+'%');
+    });
+    rows.push('');
+
+    // SECTION 5 — PERSONAL BESTS
+    rows.push('SECTION 5 — PERSONAL BESTS');
+    row('Exercise','Entry','Date');
+    const pb=ld('hx2-pb-log',{});
+    Object.keys(pb).sort().forEach(ex=>{
+      (pb[ex]||[]).forEach(e=>{
+        const dateStr=e.date?new Date(e.date).toLocaleDateString('en-US',{year:'numeric',month:'2-digit',day:'2-digit'}):'';
+        row(ex,e.entry||'',dateStr);
+      });
+    });
+
+    const csv=rows.join('\n');
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const url=URL.createObjectURL(blob);
+    const today=new Date().toISOString().slice(0,10);
+    const a=document.createElement('a');
+    a.href=url; a.download='connor-health-export-'+today+'.csv';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),10000);
+    toast('Export ready');
+  },50);
 }
 
 // ══════════════════════════════════════════════════════
