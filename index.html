@@ -3124,7 +3124,7 @@ function addServing(enc){
   toast(food.name+' — '+food.kcal+' kcal');
 }
 async function scanBarcode(){
-  if(!window.BarcodeDetector){
+  if(typeof BarcodeDetector==='undefined'){
     const fb=document.getElementById('food-feedback');
     if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#e8341a">Barcode scanning not supported on this browser — try Chrome or Safari 17+</div>';
     return;
@@ -3163,7 +3163,8 @@ async function scanBarcode(){
   }catch(e){
     stopScan();
     const fb=document.getElementById('food-feedback');
-    if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.6)">Camera access denied</div>';
+    const msg=e.name==='NotAllowedError'?'Camera access denied — check permissions in Settings':(e.name==='NotFoundError'?'No camera found on this device':'Camera error: '+e.message);
+    if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#e8341a">'+msg+'</div>';
   }
 }
 async function fetchBarcodeProduct(barcode){
