@@ -3129,12 +3129,21 @@ function localFoodLookup(q){
   return null;
 }
 
+function isComplexMealQuery(q){
+  const words=q.trim().split(/\s+/);
+  if(words.length>=4) return true;
+  const complexWords=/\b(with|and|on|half|grilled|sandwich|bowl|wrap|salad|plate|combo|side|over|topped|stuffed|filled|baked|fried|roasted|mixed|plus)\b/i;
+  return complexWords.test(q);
+}
+
 async function lookupFoodServings(q){
-  // 1. Try local DB first (instant, no API needed)
-  const local=localFoodLookup(q);
-  if(local) return local;
-  // 2. Fall back to AI (Vercel deploy only)
-  const t=await aiCall(`Nutrition database. Food query: "${q}". Return 3 serving size options. Low-carb diet. ONLY valid JSON:\n{"food":"${q}","options":[{"serving":"1 serving (specify)","kcal":0,"protein":0,"carbs":0,"fat":0,"sugar":0}]}`,500);
+  // 1. Only use local DB for simple single-ingredient queries
+  if(!isComplexMealQuery(q)){
+    const local=localFoodLookup(q);
+    if(local) return local;
+  }
+  // 2. AI for everything else (complex meals, custom descriptions, not in DB)
+  const t=await aiCall(`You are a nutrition expert. The user logged a custom meal: "${q}". Make your best estimate of the total macros for the entire described portion. Be specific about the serving — if they say half, calculate for half. Return ONLY valid JSON with 3 options using slightly different portion assumptions (smaller/medium/larger estimate):\n{"food":"${q}","options":[{"serving":"describe portion","kcal":0,"protein":0,"carbs":0,"fat":0,"sugar":0}]}`,500);
   return pj(t);
 }
 const HIGH_PROTEIN_FOODS=[
