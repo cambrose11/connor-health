@@ -2392,6 +2392,7 @@ body::before{
 }
 
 </style>
+<script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
 </head>
 <body>
 
@@ -3124,11 +3125,6 @@ function addServing(enc){
   toast(food.name+' — '+food.kcal+' kcal');
 }
 async function scanBarcode(){
-  if(typeof BarcodeDetector==='undefined'){
-    const fb=document.getElementById('food-feedback');
-    if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#e8341a">Barcode scanning not supported on this browser — try Chrome or Safari 17+</div>';
-    return;
-  }
   const overlay=document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:#000;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;';
   const video=document.createElement('video');
@@ -3147,19 +3143,13 @@ async function scanBarcode(){
   frame.appendChild(video); frame.appendChild(corners);
   overlay.appendChild(frame); overlay.appendChild(hint); overlay.appendChild(cancelBtn);
   document.body.appendChild(overlay);
-  let stream; let scanning=true;
-  function stopScan(){scanning=false;if(stream)stream.getTracks().forEach(t=>t.stop());overlay.remove();}
+  const reader=new ZXing.BrowserMultiFormatReader();
+  function stopScan(){reader.reset();overlay.remove();}
   cancelBtn.onclick=stopScan;
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-    video.srcObject=stream; await video.play();
-    const detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf']});
-    async function detect(){
-      if(!scanning) return;
-      try{const barcodes=await detector.detect(video);if(barcodes.length>0){const barcode=barcodes[0].rawValue;stopScan();await fetchBarcodeProduct(barcode);return;}}catch(e){}
-      if(scanning) requestAnimationFrame(detect);
-    }
-    requestAnimationFrame(detect);
+    await reader.decodeFromVideoDevice(null,video,function(result,err){
+      if(result){const barcode=result.getText();stopScan();fetchBarcodeProduct(barcode);}
+    });
   }catch(e){
     stopScan();
     const fb=document.getElementById('food-feedback');
