@@ -2978,14 +2978,15 @@ function tickWoTimer(){
 // ══════════════════════════════════════════════════════
 //  AI
 // ══════════════════════════════════════════════════════
-async function aiCall(prompt,mt=400){
-  const r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:mt,messages:[{role:'user',content:prompt}]})});
+async function aiCall(prompt,mt=400,sys=''){
+  const body={model:'claude-sonnet-4-20250514',max_tokens:mt,messages:[{role:'user',content:prompt}]};
+  if(sys) body.system=sys;
+  const r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!r.ok) throw new Error('API '+r.status);
   const d=await r.json();
   return d.content.filter(b=>b.type==='text').map(b=>b.text).join('');
 }
-function pj(t){return JSON.parse(t.replace(/```json|```/g,'').trim())}
+function pj(t){const s=t.replace(/```json|```/g,'').trim();const m=s.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);return JSON.parse(m?m[0]:s)}
 
 // ── LOCAL NUTRITION DATABASE (works offline / pre-deploy) ──
 const FOOD_DB = {
@@ -3079,7 +3080,7 @@ async function lookupFoodServings(q){
   return pj(t);
 }
 async function getProSug(rem){
-  const t=await aiCall(`Need ${rem}g protein fast. Low-carb low-sugar. 4 quick options. ONLY JSON:\n{"suggestions":[{"name":"option","protein":0,"kcal":0}]}`,350);
+  const t=await aiCall(`Need ${rem}g more protein today. Low-carb, low-sugar. Give 4 quick high-protein food options. Format: {"suggestions":[{"name":"food name","protein":25,"kcal":200}]}`,350,'Respond with ONLY valid JSON, no preamble, no explanation, no markdown.');
   return pj(t);
 }
 
@@ -3123,7 +3124,11 @@ function addServing(enc){
   toast(food.name+' — '+food.kcal+' kcal');
 }
 async function scanBarcode(){
-  if(!window.BarcodeDetector) return;
+  if(!window.BarcodeDetector){
+    const fb=document.getElementById('food-feedback');
+    if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#e8341a">Barcode scanning not supported on this browser — try Chrome or Safari 17+</div>';
+    return;
+  }
   const overlay=document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:#000;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;';
   const video=document.createElement('video');
@@ -3216,7 +3221,7 @@ async function loadProSug(rem){
   try{
     const d=await getProSug(rem);
     chips.innerHTML=d.suggestions.map(s=>`<span class="chip" onclick="quickAddPro('${encodeURIComponent(s.name)}',${s.protein},${s.kcal})">${s.name} +${s.protein}g</span>`).join('');
-  }catch{chips.innerHTML='<span style="color:#e8341a;font-family:\'Barlow Condensed\',sans-serif;font-size:11px">Error</span>'}
+  }catch(e){chips.innerHTML=`<span style="color:#e8341a;font-family:'Barlow Condensed',sans-serif;font-size:11px">Error: ${e.message||'AI unavailable'} — tap to retry</span>`;chips.onclick=()=>loadProSug(rem);}
 }
 function quickAddPro(nameEnc,protein,kcal){
   const name=decodeURIComponent(nameEnc);
@@ -3533,7 +3538,7 @@ function renderMeals(){
       <div class="dark-food-input-wrap">
         <div class="dark-food-row">
           <input class="dark-food-inp" id="food-inp" placeholder="200g chicken, 2 eggs, salmon..." onkeydown="if(event.key==='Enter')addFood()">
-          ${window.BarcodeDetector?`<button class="dark-food-scan-btn" id="food-scan-btn" onclick="scanBarcode()" title="Scan barcode"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>`:''}
+          <button class="dark-food-scan-btn" id="food-scan-btn" onclick="scanBarcode()" title="Scan barcode"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="5" height="5"/><rect x="16" y="3" width="5" height="5"/><rect x="3" y="16" width="5" height="5"/><line x1="8" y1="5.5" x2="16" y2="5.5"/><line x1="5.5" y1="8" x2="5.5" y2="16"/><line x1="18.5" y1="8" x2="18.5" y2="16"/><line x1="8" y1="18.5" x2="13" y2="18.5"/><line x1="16" y1="13" x2="21" y2="13"/><line x1="13" y1="16" x2="13" y2="21"/></svg></button>
           <button class="dark-food-add-btn" id="food-add-btn" onclick="addFood()"><span id="food-add-icon">+</span> Add</button>
         </div>
         <div id="serving-area"></div>
