@@ -2658,6 +2658,19 @@ let woGroups=[]; // [{name, exercises:[{n,s}]}]
 let pbLog={};    // {exerciseName: [{entry,date,timestamp}]}
 let workoutTimers={}; // {dayKey: {start,elapsed,running}}
 
+function loadVarsFromCache(){
+  G=ld('hx2-goals',GOALS_DEFAULT);
+  W=ld('hx2-weight',{current:221,start:221,goal:185,history:[]});
+  checks=ld('hx2-checks',{});
+  cardioD=ld('hx2-cardio',{});
+  favs=ld('hx2-favs',[]);
+  settings=ld('hx2-settings',{notifs:false,units:'lbs'});
+  fastStart=ld('hx2-faststart',null);
+  manualExs=ld('hx2-manual-ex',{});
+  woGroups=ld('hx2-wo-groups',[]);
+  pbLog=ld('hx2-pb-log',{});
+  workoutTimers=ld('hx2-wo-timer',{});
+}
 async function initDB(){
   const all=await db.kv.toArray();
   for(const {key,value} of all) _cache[key]=value;
@@ -2672,17 +2685,7 @@ async function initDB(){
     _cache['hx2-db-migrated']=true;
     await db.kv.put({key:'hx2-db-migrated',value:true});
   }
-  G=ld('hx2-goals',GOALS_DEFAULT);
-  W=ld('hx2-weight',{current:221,start:221,goal:185,history:[]});
-  checks=ld('hx2-checks',{});
-  cardioD=ld('hx2-cardio',{});
-  favs=ld('hx2-favs',[]);
-  settings=ld('hx2-settings',{notifs:false,units:'lbs'});
-  fastStart=ld('hx2-faststart',null);
-  manualExs=ld('hx2-manual-ex',{});
-  woGroups=ld('hx2-wo-groups',[]);
-  pbLog=ld('hx2-pb-log',{});
-  workoutTimers=ld('hx2-wo-timer',{});
+  loadVarsFromCache();
 }
 
 function todayKey(){return new Date().toDateString()}
@@ -3129,14 +3132,14 @@ async function lookupFoodServings(q){
 }
 async function getProSug(rem){
   const query=rem>60?'chicken breast':rem>40?'tuna':'greek yogurt';
-  const url=`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&nutriment_0=proteins&nutriment_compare_0=gt&nutriment_value_0=20&sort_by=unique_scans_n&page_size=6`;
+  const url=`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&lang=en&lc=en&nutriment_0=proteins&nutriment_compare_0=gt&nutriment_value_0=20&sort_by=unique_scans_n&page_size=10`;
   const r=await fetch(url);
   if(!r.ok) throw new Error('OpenFoodFacts unavailable');
   const data=await r.json();
   const suggestions=(data.products||[])
-    .filter(p=>p.product_name&&p.nutriments&&p.nutriments['proteins_100g']>10)
+    .filter(p=>{const n=p.product_name||'';return n&&/^[\x00-\x7F]+$/.test(n)&&p.nutriments&&p.nutriments['proteins_100g']>10;})
     .slice(0,4)
-    .map(p=>({name:p.product_name.split(',')[0].trim().substring(0,28),protein:Math.round(p.nutriments['proteins_100g']),kcal:Math.round(p.nutriments['energy-kcal_100g']||0)}));
+    .map(p=>({name:p.product_name.split(',')[0].trim().substring(0,28),protein:Math.round(p.nutriments['proteins_100g']),kcal:Math.round(p.nutriments['energy-kcal_100g']||0),carbs:Math.round(p.nutriments['carbohydrates_100g']||0),fat:Math.round(p.nutriments['fat_100g']||0),sugar:Math.round(p.nutriments['sugars_100g']||0)}));
   if(!suggestions.length) throw new Error('No results found');
   return {suggestions};
 }
@@ -3267,8 +3270,29 @@ async function loadProSug(rem){
   chips.innerHTML='<span style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.6)">Loading...</span>';
   try{
     const d=await getProSug(rem);
-    chips.innerHTML=d.suggestions.map(s=>`<span class="chip" onclick="quickAddPro('${encodeURIComponent(s.name)}',${s.protein},${s.kcal})">${s.name} +${s.protein}g</span>`).join('');
+    chips.innerHTML=d.suggestions.map(s=>`<span class="chip" onclick="showProSugPicker('${encodeURIComponent(s.name)}',${s.protein},${s.kcal},${s.carbs},${s.fat},${s.sugar})">${s.name} +${s.protein}g</span>`).join('');
   }catch(e){chips.innerHTML=`<span style="color:#e8341a;font-family:'Barlow Condensed',sans-serif;font-size:11px">Error: ${e.message||'No suggestions found'} — tap to retry</span>`;chips.onclick=()=>loadProSug(rem);}
+}
+function showProSugPicker(nameEnc,protein,kcal,carbs,fat,sugar){
+  const name=decodeURIComponent(nameEnc);
+  const sa=document.getElementById('serving-area'); if(!sa) return;
+  const opts=[
+    {serving:'1 serving (100g)',kcal:kcal,protein:protein,carbs:carbs,fat:fat,sugar:sugar},
+    {serving:'Half serving (50g)',kcal:Math.round(kcal/2),protein:Math.round(protein/2*10)/10,carbs:Math.round(carbs/2*10)/10,fat:Math.round(fat/2*10)/10,sugar:Math.round(sugar/2*10)/10},
+    {serving:'Double serving (200g)',kcal:kcal*2,protein:protein*2,carbs:carbs*2,fat:fat*2,sugar:sugar*2}
+  ];
+  sa.innerHTML=`<div style="background:#222;border-top:1px solid rgba(255,255,255,0.08)">
+    <div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.07)">
+      <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.65)">${name} &mdash; pick serving</span>
+      <button onclick="document.getElementById('serving-area').innerHTML=''" style="background:none;border:none;font-size:18px;color:rgba(255,255,255,0.6);cursor:pointer;line-height:1">&#215;</button>
+    </div>
+    ${opts.map(o=>`<div class="serving-opt" style="background:transparent;border-bottom:1px solid rgba(255,255,255,0.06)" onclick="addServing('${encodeURIComponent(JSON.stringify({name:name+' ('+o.serving+')',kcal:o.kcal,protein:o.protein,carbs:o.carbs,fat:o.fat,sugar:o.sugar}))}')">
+      <div class="serving-opt-name" style="color:#fff">${o.serving}</div>
+      <div class="serving-opt-m">P ${o.protein}g &middot; C ${o.carbs}g</div>
+      <div class="serving-opt-k">${o.kcal} kcal</div>
+    </div>`).join('')}
+  </div>`;
+  sa.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function quickAddPro(nameEnc,protein,kcal){
   const name=decodeURIComponent(nameEnc);
@@ -4430,9 +4454,11 @@ function startApp(){
   setTimeout(()=>{_initDone=true;},50);
   // Refresh active tab every 60s for live clock updates
   setInterval(()=>renderTab(curTab),60000);
-  setTimeout(initCheckin,200);
 }
-initDB().then(startApp).catch(e=>{console.error('DB init failed',e);startApp();});
+// Render immediately with defaults, then load persisted data in background
+loadVarsFromCache();
+startApp();
+initDB().then(()=>{renderTab(curTab);initCheckin();}).catch(e=>{console.error('DB init failed',e);initCheckin();});
 
 // Settings accessible from Goals tab footer link
 
@@ -4859,7 +4885,7 @@ function ciEnterApp(){
   notify();
 }
 
-// Check-in is initialized in startApp()
+// Check-in is initialized after DB loads
 
 </script>
 </body>
