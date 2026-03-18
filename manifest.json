@@ -1,10 +1,10 @@
 {
-  "name": "Connor's Health OS",
-  "short_name": "HealthOS",
+  "name": "Connor Health",
+  "short_name": "Connor",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0a0a",
-  "theme_color": "#0a0a0a",
+  "background_color": "#1c1c1e",
+  "theme_color": "#C9A84C",
   "orientation": "portrait-primary",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
