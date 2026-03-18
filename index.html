@@ -1108,6 +1108,13 @@ body::before{
   font-size: clamp(52px,14vw,68px); line-height: 0.88; letter-spacing: -2px;
   color: #fff; display: block; margin-bottom: 6px;
 }
+.hfh-stage {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase;
+  color: rgba(255,255,255,0.6); margin-bottom: 8px; display: block;
+  transition: color 0.6s ease;
+}
+.hfh-stage-red { color: #e8341a; }
 .hfh-pct {
   font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
   font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
@@ -2903,7 +2910,14 @@ function getFastStatus(){
     const m=Math.round((37-h)*60);
     countdown=Math.floor(m/60)+'h '+pad(m%60)+'m'; clabel='window opens';
   }
-  return{inWindow,elapsed,goal,pct,countdown,clabel,elapsedStr:hms(elapsed)};
+  const elapsedHrs=elapsed/3600;
+  let stage,stageRed=false;
+  if(elapsedHrs<3){stage='Fed';}
+  else if(elapsedHrs<8){stage='Early Fast';}
+  else if(elapsedHrs<14){stage='Fat Burning';}
+  else if(elapsedHrs<18){stage='Ketosis';stageRed=true;}
+  else{stage='Deep Ketosis';stageRed=true;}
+  return{inWindow,elapsed,goal,pct,countdown,clabel,elapsedStr:hms(elapsed),stage,stageRed};
 }
 
 // Tick the fast timer and progress bar live
@@ -2911,9 +2925,11 @@ setInterval(()=>{
   if(curTab==='overview'){
     const ft=document.getElementById('fast-timer-txt');
     const fp=document.getElementById('fast-progress-fill');
+    const fst=document.getElementById('fast-stage-txt');
     const fs=getFastStatus();
     if(ft) ft.textContent=fs.elapsedStr;
     if(fp) fp.style.width=fs.pct+'%';
+    if(fst){fst.textContent=fs.stage;fst.className='hfh-stage'+(fs.stageRed?' hfh-stage-red':'');}
   }
 },1000);
 
@@ -3422,6 +3438,7 @@ function renderOverview(){
     `<div class="home-fast-hero fade-item">
       <div class="hfh-eyebrow">${fast.inWindow?'Eating Window Open':'Currently Fasting'}</div>
       <span class="hfh-timer" id="fast-timer-txt">${fast.elapsedStr}</span>
+      <div class="hfh-stage${fast.stageRed?' hfh-stage-red':''}" id="fast-stage-txt">${fast.stage}</div>
       <div class="hfh-pct">${fast.pct}% of ${G.fastHours}h goal</div>
       <div class="hfh-progress"><div class="hfh-progress-fill" id="fast-progress-fill" style="width:${fast.pct}%"></div></div>
       <div class="hfh-meta">${fast.countdown} until ${fast.clabel}</div>
