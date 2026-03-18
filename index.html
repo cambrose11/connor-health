@@ -3130,19 +3130,28 @@ async function lookupFoodServings(q){
   const t=await aiCall(`Nutrition database. Food query: "${q}". Return 3 serving size options. Low-carb diet. ONLY valid JSON:\n{"food":"${q}","options":[{"serving":"1 serving (specify)","kcal":0,"protein":0,"carbs":0,"fat":0,"sugar":0}]}`,500);
   return pj(t);
 }
-async function getProSug(rem){
-  const query=rem>60?'chicken breast':rem>40?'tuna':'greek yogurt';
-  const url=`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&lang=en&lc=en&nutriment_0=proteins&nutriment_compare_0=gt&nutriment_value_0=20&sort_by=unique_scans_n&page_size=10`;
-  const r=await fetch(url);
-  if(!r.ok) throw new Error('OpenFoodFacts unavailable');
-  const data=await r.json();
-  const suggestions=(data.products||[])
-    .filter(p=>{const n=p.product_name||'';return n&&/^[\x00-\x7F]+$/.test(n)&&p.nutriments&&p.nutriments['proteins_100g']>10;})
-    .slice(0,4)
-    .map(p=>({name:p.product_name.split(',')[0].trim().substring(0,28),protein:Math.round(p.nutriments['proteins_100g']),kcal:Math.round(p.nutriments['energy-kcal_100g']||0),carbs:Math.round(p.nutriments['carbohydrates_100g']||0),fat:Math.round(p.nutriments['fat_100g']||0),sugar:Math.round(p.nutriments['sugars_100g']||0)}));
-  if(!suggestions.length) throw new Error('No results found');
-  return {suggestions};
-}
+const HIGH_PROTEIN_FOODS=[
+  {name:'Chicken Breast',protein:31,kcal:165,carbs:0,fat:3.6},
+  {name:'Greek Yogurt',protein:10,kcal:59,carbs:3.6,fat:0.4},
+  {name:'Eggs',protein:13,kcal:155,carbs:1.1,fat:11},
+  {name:'Canned Tuna',protein:30,kcal:132,carbs:0,fat:1},
+  {name:'Cottage Cheese',protein:11,kcal:98,carbs:3.4,fat:4.3},
+  {name:'Salmon',protein:25,kcal:208,carbs:0,fat:13},
+  {name:'Ground Beef 93%',protein:26,kcal:218,carbs:0,fat:13},
+  {name:'Turkey Breast',protein:29,kcal:135,carbs:0,fat:1},
+  {name:'Shrimp',protein:24,kcal:99,carbs:0.2,fat:0.3},
+  {name:'Whey Protein',protein:80,kcal:400,carbs:5,fat:5},
+  {name:'Steak Sirloin',protein:27,kcal:207,carbs:0,fat:9},
+  {name:'Tilapia',protein:26,kcal:128,carbs:0,fat:2.7},
+  {name:'Pork Tenderloin',protein:26,kcal:143,carbs:0,fat:3.5},
+  {name:'Deli Turkey',protein:18,kcal:89,carbs:2,fat:1},
+  {name:'Mozzarella',protein:22,kcal:280,carbs:2.2,fat:17},
+  {name:'Chicken Thigh',protein:26,kcal:209,carbs:0,fat:13},
+  {name:'Beef Jerky',protein:33,kcal:410,carbs:3,fat:25},
+  {name:'Hard Boiled Eggs',protein:13,kcal:155,carbs:1.1,fat:11},
+  {name:'Tuna Steak',protein:30,kcal:144,carbs:0,fat:1},
+  {name:'Edamame',protein:11,kcal:122,carbs:9,fat:5}
+];
 
 // ══════════════════════════════════════════════════════
 //  FOOD LOG ACTIONS
@@ -3265,22 +3274,16 @@ function toggleFav(i){
   else{favs.push({...item});toast('Saved to favorites')}
   sv('hx2-favs',favs); notify();
 }
-async function loadProSug(rem){
+function loadProSug(rem){
   const chips=document.getElementById('pro-chips'); if(!chips) return;
-  chips.innerHTML='<span style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.6)">Loading...</span>';
-  try{
-    const d=await getProSug(rem);
-    chips.innerHTML=d.suggestions.map(s=>`<span class="chip" onclick="showProSugPicker('${encodeURIComponent(s.name)}',${s.protein},${s.kcal},${s.carbs},${s.fat},${s.sugar})">${s.name} +${s.protein}g</span>`).join('');
-  }catch(e){chips.innerHTML=`<span style="color:#e8341a;font-family:'Barlow Condensed',sans-serif;font-size:11px">Error: ${e.message||'No suggestions found'} — tap to retry</span>`;chips.onclick=()=>loadProSug(rem);}
+  const top4=[...HIGH_PROTEIN_FOODS].sort((a,b)=>b.protein-a.protein).slice(0,4);
+  chips.innerHTML=top4.map(s=>`<span class="chip" onclick="showProSugPicker('${encodeURIComponent(s.name)}',${s.protein},${s.kcal},${s.carbs},${s.fat})">${s.name} +${s.protein}g</span>`).join('');
 }
-function showProSugPicker(nameEnc,protein,kcal,carbs,fat,sugar){
+function showProSugPicker(nameEnc,protein,kcal,carbs,fat){
   const name=decodeURIComponent(nameEnc);
   const sa=document.getElementById('serving-area'); if(!sa) return;
-  const opts=[
-    {serving:'1 serving (100g)',kcal:kcal,protein:protein,carbs:carbs,fat:fat,sugar:sugar},
-    {serving:'Half serving (50g)',kcal:Math.round(kcal/2),protein:Math.round(protein/2*10)/10,carbs:Math.round(carbs/2*10)/10,fat:Math.round(fat/2*10)/10,sugar:Math.round(sugar/2*10)/10},
-    {serving:'Double serving (200g)',kcal:kcal*2,protein:protein*2,carbs:carbs*2,fat:fat*2,sugar:sugar*2}
-  ];
+  const sc=(g)=>({serving:g+'g',kcal:Math.round(kcal*g/100),protein:Math.round(protein*g/100*10)/10,carbs:Math.round(carbs*g/100*10)/10,fat:Math.round(fat*g/100*10)/10,sugar:0});
+  const opts=[sc(100),sc(150),sc(200)];
   sa.innerHTML=`<div style="background:#222;border-top:1px solid rgba(255,255,255,0.08)">
     <div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.07)">
       <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.65)">${name} &mdash; pick serving</span>
@@ -4458,7 +4461,10 @@ function startApp(){
 // Render immediately with defaults, then load persisted data in background
 loadVarsFromCache();
 startApp();
-initDB().then(()=>{renderTab(curTab);initCheckin();}).catch(e=>{console.error('DB init failed',e);initCheckin();});
+// Defer DB init to after browser paints first frame so home screen appears instantly
+setTimeout(()=>{
+  initDB().then(()=>{renderTab(curTab);initCheckin();}).catch(e=>{console.error('DB init failed',e);initCheckin();});
+},0);
 
 // Settings accessible from Goals tab footer link
 
