@@ -3128,8 +3128,17 @@ async function lookupFoodServings(q){
   return pj(t);
 }
 async function getProSug(rem){
-  const t=await aiCall(`Need ${rem}g more protein today. Low-carb, low-sugar. Give 4 quick high-protein food options. Format: {"suggestions":[{"name":"food name","protein":25,"kcal":200}]}`,350,'Respond with ONLY valid JSON, no preamble, no explanation, no markdown.');
-  return pj(t);
+  const query=rem>60?'chicken breast':rem>40?'tuna':'greek yogurt';
+  const url=`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&nutriment_0=proteins&nutriment_compare_0=gt&nutriment_value_0=20&sort_by=unique_scans_n&page_size=6`;
+  const r=await fetch(url);
+  if(!r.ok) throw new Error('OpenFoodFacts unavailable');
+  const data=await r.json();
+  const suggestions=(data.products||[])
+    .filter(p=>p.product_name&&p.nutriments&&p.nutriments['proteins_100g']>10)
+    .slice(0,4)
+    .map(p=>({name:p.product_name.split(',')[0].trim().substring(0,28),protein:Math.round(p.nutriments['proteins_100g']),kcal:Math.round(p.nutriments['energy-kcal_100g']||0)}));
+  if(!suggestions.length) throw new Error('No results found');
+  return {suggestions};
 }
 
 // ══════════════════════════════════════════════════════
@@ -3259,7 +3268,7 @@ async function loadProSug(rem){
   try{
     const d=await getProSug(rem);
     chips.innerHTML=d.suggestions.map(s=>`<span class="chip" onclick="quickAddPro('${encodeURIComponent(s.name)}',${s.protein},${s.kcal})">${s.name} +${s.protein}g</span>`).join('');
-  }catch(e){chips.innerHTML=`<span style="color:#e8341a;font-family:'Barlow Condensed',sans-serif;font-size:11px">Error: ${e.message||'AI unavailable'} — tap to retry</span>`;chips.onclick=()=>loadProSug(rem);}
+  }catch(e){chips.innerHTML=`<span style="color:#e8341a;font-family:'Barlow Condensed',sans-serif;font-size:11px">Error: ${e.message||'No suggestions found'} — tap to retry</span>`;chips.onclick=()=>loadProSug(rem);}
 }
 function quickAddPro(nameEnc,protein,kcal){
   const name=decodeURIComponent(nameEnc);
@@ -3555,7 +3564,7 @@ function renderMeals(){
   if(proRem>20){
     proHtml=`<div class="dark-pro-banner fade-item">
       <div class="dark-pro-title">${proRem}g protein still needed</div>
-      <div class="chips" id="pro-chips"><span class="chip" onclick="loadProSug(${proRem})">Get AI suggestions</span></div>
+      <div class="chips" id="pro-chips"><span class="chip" onclick="loadProSug(${proRem})">Get food suggestions</span></div>
     </div>`;
   }
   document.getElementById('screen-meals').innerHTML=`
