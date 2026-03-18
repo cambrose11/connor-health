@@ -10,7 +10,7 @@
 <title>Connor — Health OS</title>
 <link rel="manifest" href="/manifest.json">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,300;0,400;0,600;0,700;0,800;0,900;1,700&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+<script src="https://unpkg.com/dexie@4.0.10/dist/dexie.js"></script>
 <style>
 /* ── TOKENS ─────────────────────────────────────────── */
 :root {
@@ -2871,6 +2871,7 @@ subscribe(()=>{if(_initDone)renderTab(curTab);});
 //  CLOCK & FAST TIMER
 // ══════════════════════════════════════════════════════
 function pad(n){return String(n).padStart(2,'0')}
+function esc(s){const d=document.createElement('div');d.textContent=String(s??'');return d.innerHTML}
 function hms(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return pad(h)+':'+pad(m)+':'+pad(sec)}
 
 function clockTick(){
@@ -3171,11 +3172,11 @@ async function addFood(){
     if(fb) fb.innerHTML='';
     if(sa) sa.innerHTML=`<div style="background:#222;border-top:1px solid rgba(255,255,255,0.08)">
       <div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.07)">
-        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.65)">${data.food} — pick serving</span>
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.65)">${esc(data.food)} — pick serving</span>
         <button onclick="document.getElementById('serving-area').innerHTML=''" style="background:none;border:none;font-size:18px;color:rgba(255,255,255,0.6);cursor:pointer;line-height:1">×</button>
       </div>
       ${data.options.map(o=>`<div class="serving-opt" style="background:transparent;border-bottom:1px solid rgba(255,255,255,0.06)" onclick="addServing('${encodeURIComponent(JSON.stringify({name:data.food+' ('+o.serving+')',kcal:o.kcal,protein:o.protein,carbs:o.carbs,fat:o.fat,sugar:o.sugar||0}))}')">
-        <div class="serving-opt-name" style="color:#fff">${o.serving}</div>
+        <div class="serving-opt-name" style="color:#fff">${esc(o.serving)}</div>
         <div class="serving-opt-m">P ${o.protein}g · C ${o.carbs}g</div>
         <div class="serving-opt-k">${o.kcal} kcal</div>
       </div>`).join('')}
@@ -3228,9 +3229,13 @@ async function scanBarcode(){
 async function fetchBarcodeProduct(barcode){
   const fb=document.getElementById('food-feedback');
   const sa=document.getElementById('serving-area');
+  if(!/^\d{6,14}$/.test(barcode)){
+    if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#e8341a">Invalid barcode</div>';
+    return;
+  }
   if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.6)">Looking up barcode...</div>';
   try{
-    const res=await fetch('https://world.openfoodfacts.org/api/v2/product/'+barcode+'.json');
+    const res=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(barcode)+'.json');
     const data=await res.json();
     if(data.status!==1||!data.product){
       if(fb) fb.innerHTML='<div style="padding:8px 0;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#e8341a">Product not found — try searching by name</div>';
@@ -3248,11 +3253,11 @@ async function fetchBarcodeProduct(barcode){
     if(fb) fb.innerHTML='';
     if(sa) sa.innerHTML=`<div style="background:#222;border-top:1px solid rgba(255,255,255,0.08)">
       <div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.07)">
-        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.65)">${name} — pick serving</span>
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.65)">${esc(name)} — pick serving</span>
         <button onclick="document.getElementById('serving-area').innerHTML=''" style="background:none;border:none;font-size:18px;color:rgba(255,255,255,0.6);cursor:pointer;line-height:1">×</button>
       </div>
       ${opts.map(o=>`<div class="serving-opt" style="background:transparent;border-bottom:1px solid rgba(255,255,255,0.06)" onclick="addServing('${encodeURIComponent(JSON.stringify({name:name+' ('+o.serving+')',kcal:o.kcal,protein:o.protein,carbs:o.carbs,fat:o.fat,sugar:o.sugar||0}))}')">
-        <div class="serving-opt-name" style="color:#fff">${o.serving}</div>
+        <div class="serving-opt-name" style="color:#fff">${esc(o.serving)}</div>
         <div class="serving-opt-m">P ${o.protein}g · C ${o.carbs}g</div>
         <div class="serving-opt-k">${o.kcal} kcal</div>
       </div>`).join('')}
@@ -3308,14 +3313,15 @@ function quickAddPro(nameEnc,protein,kcal){
 //  PERSONAL BESTS
 // ══════════════════════════════════════════════════════
 let _pbCurrentEx = '';
-function openPBSheet(exName){
+function openPBSheet(exNameEnc){
+  const exName = decodeURIComponent(exNameEnc);
   _pbCurrentEx = exName;
   document.getElementById('pb-sheet-ex-name').textContent = exName;
   document.getElementById('pb-sheet-inp').value = '';
   const pb = pbLog[exName]||[];
   const prev = pb.length ? pb[pb.length-1] : null;
   document.getElementById('pb-sheet-prev').innerHTML = prev
-    ? `Last session: <strong>${prev.entry}</strong> <span style="color:rgba(255,255,255,0.4)">(${prev.date})</span>`
+    ? `Last session: <strong>${esc(prev.entry)}</strong> <span style="color:rgba(255,255,255,0.4)">(${esc(prev.date)})</span>`
     : 'No previous entry — first time logging this.';
   document.getElementById('pb-sheet-bg').classList.add('open');
   setTimeout(()=>document.getElementById('pb-sheet-inp').focus(), 350);
@@ -3471,7 +3477,7 @@ function renderOverview(){
     if(!favs.length) return '';
     const chips=favs.slice(0,4).map(f=>`
       <div class="home-ql-chip" onclick="quickLogFav('${encodeURIComponent(JSON.stringify(f))}')">
-        ${f.name}<span class="home-ql-k">${f.kcal}cal</span>
+        ${esc(f.name)}<span class="home-ql-k">${f.kcal}cal</span>
       </div>`).join('');
     return `<div class="home-quick-log fade-item">
       <div class="home-ql-label">Quick Log</div>
@@ -3583,7 +3589,7 @@ function renderMeals(){
     favsHtml=`<div class="dark-favs">
       <div class="dark-favs-label">Saved Meals</div>
       <div class="dark-favs-chips">
-        ${favs.map(f=>`<div class="dark-fav-chip" onclick="addFavToLog('${encodeURIComponent(JSON.stringify(f))}')">${f.name}<span class="dark-fav-k">${f.kcal}cal</span></div>`).join('')}
+        ${favs.map(f=>`<div class="dark-fav-chip" onclick="addFavToLog('${encodeURIComponent(JSON.stringify(f))}')">${esc(f.name)}<span class="dark-fav-k">${f.kcal}cal</span></div>`).join('')}
       </div>
     </div>`;
   }
@@ -3607,7 +3613,7 @@ function renderMeals(){
     <div class="dark-card fade-item">
       <div class="dark-card-head"><span class="dark-card-label">Food Log</span><span class="dark-card-meta">${log.length} item${log.length!==1?'s':''}</span></div>
       <div id="food-list">
-        ${log.length?log.map((e,i)=>{const starred=favs.some(f=>f.name===e.name);return `<div class="dark-fe"><div class="dark-fe-num">${pad(i+1)}</div><div class="dark-fe-info"><div class="dark-fe-name">${e.name}</div><div class="dark-fe-macro">P ${e.protein}g · C ${e.carbs}g · F ${e.fat}g · S ${e.sugar}g</div></div><div class="dark-fe-kcal">${e.kcal}</div><button class="dark-fe-star${starred?' on':''}" onclick="toggleFav(${i})">${starred?'★':'☆'}</button><button class="dark-fe-del" onclick="delFood(${i})">×</button></div>`;}).join(''):`<div class="dark-empty-log">Nothing logged yet</div>`}
+        ${log.length?log.map((e,i)=>{const starred=favs.some(f=>f.name===e.name);return `<div class="dark-fe"><div class="dark-fe-num">${pad(i+1)}</div><div class="dark-fe-info"><div class="dark-fe-name">${esc(e.name)}</div><div class="dark-fe-macro">P ${e.protein}g · C ${e.carbs}g · F ${e.fat}g · S ${e.sugar}g</div></div><div class="dark-fe-kcal">${e.kcal}</div><button class="dark-fe-star${starred?' on':''}" onclick="toggleFav(${i})">${starred?'★':'☆'}</button><button class="dark-fe-del" onclick="delFood(${i})">×</button></div>`;}).join(''):`<div class="dark-empty-log">Nothing logged yet</div>`}
       </div>
       ${favsHtml}
       <div class="dark-food-input-wrap">
@@ -3688,7 +3694,7 @@ function renderWorkouts(){
     <!-- SAVED GROUPS -->
     ${woGroups.length?`<div class="wo-groups-row fade-item">
       ${woGroups.map((g,gi)=>`<div class="wg-pill" onclick="loadGroup(${gi})">
-        <span class="wg-pill-name">${g.name}</span>
+        <span class="wg-pill-name">${esc(g.name)}</span>
         <span class="wg-pill-count">${g.exercises.length}</span>
         <button class="wg-pill-del" onclick="event.stopPropagation();deleteGroup(${gi})">×</button>
       </div>`).join('')}
@@ -3724,13 +3730,13 @@ function renderWorkouts(){
           </button>
         </div>
         <div class="ex-card ${col}${d?' done-card':''}" onclick="togExCard('${dk}',this,'${col}')" data-wrap="wrap-${dk}">
-          <span class="ex-card-name">${ex.n}</span>
+          <span class="ex-card-name">${esc(ex.n)}</span>
           <div class="ex-card-pb-row">
-            <button class="ex-card-pb-log" onclick="event.stopPropagation();openPBSheet('${ex.n.replace(/'/g,'\'')}')">${(()=>{const pb=(pbLog[ex.n]||[]);return pb.length?pb[pb.length-1].entry:'+ Log weight/reps'})()}</button>
+            <button class="ex-card-pb-log" onclick="event.stopPropagation();openPBSheet('${encodeURIComponent(ex.n)}')">${(()=>{const pb=(pbLog[ex.n]||[]);return pb.length?esc(pb[pb.length-1].entry):'+ Log weight/reps'})()}</button>
             ${(()=>{const pb=(pbLog[ex.n]||[]);if(pb.length>=2&&pb[pb.length-1].entry!==pb[pb.length-2].entry)return `<span class="pb-badge">PR ↑</span>`;if(pb.length)return `<span class="pb-badge" style="background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.15);color:rgba(255,255,255,0.5)">Logged</span>`;return '';})()}
           </div>
           <div class="ex-card-bottom" style="margin-top:8px">
-            <span class="ex-card-sets">${ex.s}</span>
+            <span class="ex-card-sets">${esc(ex.s)}</span>
             <div class="ex-card-check">${d?'✓':'○'}</div>
           </div>
         </div>
@@ -3752,9 +3758,9 @@ function renderWorkouts(){
           </button>
         </div>
         <div class="ex-card ${col}${d?' done-card':''}" onclick="togExCard('${dk}',this,'${col}')" data-wrap="wrap-${dk}">
-          <span class="ex-card-name">${ex.n}</span>
+          <span class="ex-card-name">${esc(ex.n)}</span>
           <div class="ex-card-bottom">
-            <span class="ex-card-sets">${ex.s||'custom'}</span>
+            <span class="ex-card-sets">${esc(ex.s||'custom')}</span>
             <div class="ex-card-check">${d?'✓':'○'}</div>
           </div>
         </div>
@@ -3992,7 +3998,7 @@ function renderLog(){
     <div class="mhm-window">
       <div class="mhm-track">
         ${mealBlocks.map(b=>`
-          <div class="mhm-block" style="left:${b.leftPct.toFixed(1)}%;width:${b.widthPct.toFixed(1)}%;background:rgba(232,52,26,${b.intensity.toFixed(2)})" title="${b.name}">
+          <div class="mhm-block" style="left:${b.leftPct.toFixed(1)}%;width:${b.widthPct.toFixed(1)}%;background:rgba(232,52,26,${b.intensity.toFixed(2)})" title="${esc(b.name)}">
             ${b.widthPct>6?`<span class="mhm-block-kcal">${b.kcal}</span>`:''}
           </div>`).join('')}
         ${inWin?`<div class="mhm-now-line" style="left:${(nowPct*100).toFixed(1)}%"></div>`:''}
@@ -4571,7 +4577,7 @@ function openDaySnap(dStrEnc){
         ${log.map(e=>`<div class="snap-wo-item">
           <div class="snap-wo-dot" style="background:var(--ink)"></div>
           <div style="flex:1;min-width:0">
-            <div style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.name}</div>
+            <div style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.name)}</div>
             <div style="font-family:'Courier Prime',monospace;font-size:8px;color:var(--muted)">${e.kcal} kcal · P${e.protein}g</div>
           </div>
         </div>`).join('')}
@@ -4847,9 +4853,9 @@ function ciShowPlan(){
   document.getElementById('ci-plan-sub').textContent = p.reasoning || '';
   document.getElementById('ci-plan-meals').innerHTML = p.meals.map(m=>`
     <div class="ci-plan-card">
-      <div class="ci-meal-time">${m.time}</div>
-      <div class="ci-meal-name">${m.name}</div>
-      <div style="font-family:'Barlow',sans-serif;font-size:13px;color:rgba(255,255,255,0.5);margin:4px 0 8px;line-height:1.4">${m.description}</div>
+      <div class="ci-meal-time">${esc(m.time)}</div>
+      <div class="ci-meal-name">${esc(m.name)}</div>
+      <div style="font-family:'Barlow',sans-serif;font-size:13px;color:rgba(255,255,255,0.5);margin:4px 0 8px;line-height:1.4">${esc(m.description)}</div>
       <div class="ci-meal-macros">${m.kcal} kcal · P ${m.protein}g · C ${m.carbs}g · F ${m.fat}g</div>
     </div>
   `).join('');
